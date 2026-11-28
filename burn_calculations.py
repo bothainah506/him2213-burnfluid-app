@@ -713,9 +713,207 @@ def generate_safety_alerts(patient_data, calculation_results):
     return alerts
 
 
+def display_estimation_results(patient_data, calculation_results, safety_alerts):
+    """Print a readable educational summary of patient data and estimates.
+
+    Missing or unexpected values are shown as unavailable rather than being
+    replaced with zero. Hourly estimates are displayed only for the
+    ``educational_estimate`` status. The output is educational only and is
+    never a treatment order or clinical recommendation.
+    """
+    separator = "=" * 72
+    unavailable = "Unavailable"
+
+    def format_number(value, decimal_places):
+        """Format a finite number without changing its stored value."""
+        if value is None or isinstance(value, bool):
+            return unavailable
+        try:
+            number = float(value)
+            if not math.isfinite(number):
+                return unavailable
+            return f"{number:,.{decimal_places}f}"
+        except (TypeError, ValueError, OverflowError):
+            return unavailable
+
+    def format_text(value):
+        """Safely format a present text value."""
+        if not isinstance(value, str):
+            return unavailable
+        text = value.strip()
+        if text == "":
+            return unavailable
+        return text
+
+    print("\n" + separator)
+    print("BURNFLUID | EDUCATIONAL RESULTS")
+    print(separator)
+    print(
+        "EDUCATIONAL SIMULATION ONLY. All patient data must be fictional. "
+        "These illustrative calculations are not clinical treatment orders "
+        "or prescribed infusion rates and must not be used for real patient "
+        "care."
+    )
+
+    print("\nFICTIONAL PATIENT SUMMARY")
+    print("-" * 72)
+    if isinstance(patient_data, dict):
+        age_display = format_number(patient_data.get("patient_age"), 0)
+        weight_display = format_number(patient_data.get("patient_weight_kg"), 1)
+        tbsa_display = format_number(patient_data.get("tbsa_percent"), 1)
+        injury_hours_display = format_number(
+            patient_data.get("hours_since_burn"), 2
+        )
+        recorded_volume_display = format_number(
+            patient_data.get("fluid_given_ml"), 2
+        )
+        inhalation_value = patient_data.get("inhalation_injury")
+        if isinstance(inhalation_value, bool):
+            inhalation_display = "Yes" if inhalation_value else "No"
+        else:
+            inhalation_display = unavailable
+
+        print(
+            "Fictional Emirates ID: "
+            + format_text(patient_data.get("emirates_id"))
+        )
+        print(
+            "Fictional patient name: "
+            + format_text(patient_data.get("patient_name"))
+        )
+        print("Age: " + age_display + (" years" if age_display != unavailable else ""))
+        print(
+            "Weight: "
+            + weight_display
+            + (" kg" if weight_display != unavailable else "")
+        )
+        print(
+            "Burn percentage: "
+            + tbsa_display
+            + ("% TBSA" if tbsa_display != unavailable else "")
+        )
+        print(
+            "Hours since injury: "
+            + injury_hours_display
+            + (" hours" if injury_hours_display != unavailable else "")
+        )
+        print(
+            "Recorded fluid during selected phase: "
+            + recorded_volume_display
+            + (" mL" if recorded_volume_display != unavailable else "")
+        )
+        print(
+            "Recorded fluid phase: "
+            + format_text(patient_data.get("fluid_phase"))
+        )
+        print("Inhalation injury reported: " + inhalation_display)
+    else:
+        print("Patient data: " + unavailable + " (expected a dictionary)")
+
+    print("\nEDUCATIONAL CALCULATION RESULTS")
+    print("-" * 72)
+    if not isinstance(calculation_results, dict):
+        calculation_results = {}
+        calculation_status = "error"
+    else:
+        calculation_status = calculation_results.get("status", "error")
+
+    if calculation_status == "educational_estimate":
+        print(
+            "Calculation status: EDUCATIONAL ESTIMATE "
+            "(educational_estimate)"
+        )
+    elif calculation_status == "review":
+        print("Calculation status: REVIEW REQUIRED (review)")
+    elif calculation_status == "error":
+        print("Calculation status: ERROR (error)")
+    else:
+        print("Calculation status: ERROR (unrecognized or missing status)")
+
+    message = calculation_results.get("message")
+    if message is not None:
+        print("Status message: " + format_text(message))
+
+    factor_display = format_number(
+        calculation_results.get("protocol_factor"), 1
+    )
+    print("Illustrative classroom formula factor: " + factor_display)
+
+    volume_fields = (
+        ("Illustrative 24-hour fluid volume", "illustrative_24h_volume_ml"),
+        ("First 8-hour phase target", "first_8h_target_ml"),
+        ("Next 16-hour phase target", "next_16h_target_ml"),
+        ("Current phase target", "current_phase_target_ml"),
+        ("Recorded fluid volume for selected phase", "fluid_given_ml"),
+        ("Remaining illustrative phase volume", "remaining_current_phase_ml"),
+    )
+    for label, key in volume_fields:
+        formatted_value = format_number(calculation_results.get(key), 2)
+        print(
+            label
+            + ": "
+            + formatted_value
+            + (" mL" if formatted_value != unavailable else "")
+        )
+
+    current_phase = format_text(calculation_results.get("current_phase"))
+    print("Current phase: " + current_phase)
+
+    remaining_hours = format_number(
+        calculation_results.get("remaining_hours_in_current_phase"), 2
+    )
+    print(
+        "Remaining hours in current phase: "
+        + remaining_hours
+        + (" hours" if remaining_hours != unavailable else "")
+    )
+
+    if calculation_status == "educational_estimate":
+        hourly_estimate = format_number(
+            calculation_results.get(
+                "illustrative_average_hourly_rate_ml_per_hour"
+            ),
+            2,
+        )
+        print(
+            "Illustrative hourly estimate: "
+            + hourly_estimate
+            + (" mL/hour" if hourly_estimate != unavailable else "")
+        )
+    elif calculation_status in ("review", "error"):
+        print(
+            "Illustrative hourly estimate: Unavailable; calculation status "
+            "is "
+            + calculation_status
+            + "."
+        )
+    else:
+        print(
+            "Illustrative hourly estimate: Unavailable; calculation status "
+            "could not be verified."
+        )
+
+    print("\nEDUCATIONAL SAFETY ALERTS")
+    print("-" * 72)
+    if isinstance(safety_alerts, (list, tuple)) and safety_alerts:
+        for alert_number, alert in enumerate(safety_alerts, start=1):
+            print(str(alert_number) + ". " + format_text(alert))
+    elif isinstance(safety_alerts, (list, tuple)):
+        print(
+            "No additional educational alerts were generated. "
+            "This does not indicate clinical safety."
+        )
+    else:
+        print("Safety alerts are unavailable (expected a list).")
+
+    print(separator)
+
+
 if __name__ == "__main__":
     patient = collect_patient_data()
     if patient is not None:
-        print("\nValidated patient data:")
-        for key, value in patient.items():
-            print(key + ":", value)
+        calculation_results = estimate_burn_fluids(patient)
+        safety_alerts = generate_safety_alerts(patient, calculation_results)
+        display_estimation_results(
+            patient, calculation_results, safety_alerts
+        )
