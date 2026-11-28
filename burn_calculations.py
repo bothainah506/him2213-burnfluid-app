@@ -22,6 +22,30 @@ EMIRATES_ID_PATTERN = re.compile(r"^784-0000-[0-9]{7}-[0-9]$")
 # This is not a verified hospital protocol or a treatment order.
 PROTOCOL_FACTOR = 4.0
 
+# Classroom-only safeguard: do not show an hourly estimate when six minutes
+# or less (0.1 hour) remain in the phase. This arbitrary numerical buffer
+# prevents a very small divisor from producing an unusually large result.
+# It is not a clinical threshold or a recommended treatment boundary.
+MIN_REMAINING_HOURS_FOR_CLASSROOM_ESTIMATE = 0.1
+
+
+def is_at_or_below_classroom_time_threshold(remaining_hours):
+    """Check the classroom time safeguard, including floating-point equality.
+
+    The absolute tolerance accounts for tiny representation differences when
+    subtracting times such as 24 - 23.9. Relative tolerance is zero so the
+    comparison uses only this small, fixed tolerance around the threshold.
+    """
+    return (
+        remaining_hours <= MIN_REMAINING_HOURS_FOR_CLASSROOM_ESTIMATE
+        or math.isclose(
+            remaining_hours,
+            MIN_REMAINING_HOURS_FOR_CLASSROOM_ESTIMATE,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+    )
+
 
 def print_educational_disclaimer():
     """Print a clear disclaimer before any patient information is collected."""
@@ -471,11 +495,21 @@ def estimate_burn_fluids(patient_data):
         return results
 
     remaining_volume_ml = phase_target_ml - fluid_given_ml
+    results["remaining_current_phase_ml"] = remaining_volume_ml
     if remaining_volume_ml < 0 or remaining_hours <= 0:
         results["status"] = "review"
         results["message"] = (
             "A non-negative phase remainder and positive remaining time are "
             "required for an educational estimate."
+        )
+        return results
+
+    if is_at_or_below_classroom_time_threshold(remaining_hours):
+        results["status"] = "review"
+        results["message"] = (
+            "Too little time remains for a meaningful classroom estimate. "
+            "The hourly estimate is withheld by an arbitrary educational "
+            "safeguard, not a clinical threshold."
         )
         return results
 
@@ -500,7 +534,6 @@ def estimate_burn_fluids(patient_data):
         )
         return results
 
-    results["remaining_current_phase_ml"] = remaining_volume_ml
     results["illustrative_average_hourly_rate_ml_per_hour"] = (
         hourly_rate_ml_per_hour
     )
@@ -510,6 +543,174 @@ def estimate_burn_fluids(patient_data):
         "treatment order."
     )
     return results
+
+
+def generate_safety_alerts(patient_data, calculation_results):
+    """Return educational warnings based on patient and estimate data.
+
+    The inhalation warning is checked independently, so it remains visible
+    even when another patient field is invalid or the estimate needs review.
+    Alerts are educational reminders, not clinical decisions or instructions.
+    """
+    alerts = []
+    required_keys = (
+        "emirates_id",
+        "patient_name",
+        "patient_age",
+        "patient_weight_kg",
+        "tbsa_percent",
+        "hours_since_burn",
+        "fluid_given_ml",
+        "fluid_phase",
+        "inhalation_injury",
+    )
+
+    if not isinstance(patient_data, dict):
+        alerts.append(
+            "Patient data is missing or incomplete; no educational estimate "
+            "should be relied on."
+        )
+        return alerts
+
+    # Check inhalation injury alone before validating the remaining fields.
+    try:
+        inhalation_injury = validate_inhalation_injury(
+            patient_data.get("inhalation_injury")
+        )
+        if inhalation_injury:
+            alerts.append(
+                "Inhalation injury is reported. This educational tool does "
+                "not assess its effects or provide clinical guidance."
+            )
+    except (TypeError, ValueError, OverflowError):
+        pass
+
+    # Validate fields one at a time so one bad value does not hide other
+    # applicable warnings such as unknown timing or the inhalation report.
+    field_validators = {
+        "emirates_id": validate_emirates_id,
+        "patient_name": validate_patient_name,
+        "patient_age": validate_patient_age,
+        "patient_weight_kg": validate_patient_weight,
+        "tbsa_percent": validate_tbsa,
+        "hours_since_burn": validate_hours_since_burn,
+        "fluid_given_ml": validate_fluid_given,
+        "fluid_phase": validate_fluid_phase,
+        "inhalation_injury": validate_inhalation_injury,
+    }
+    valid_patient_values = {}
+    patient_data_is_valid = True
+    for key in required_keys:
+        if key not in patient_data:
+            patient_data_is_valid = False
+        else:
+            try:
+                valid_patient_values[key] = field_validators[key](
+                    patient_data[key]
+                )
+            except (TypeError, ValueError, OverflowError):
+                patient_data_is_valid = False
+
+    if not patient_data_is_valid:
+        alerts.append(
+            "Patient data is invalid or incomplete for this educational "
+            "prototype; check all required fictional patient fields."
+        )
+
+    fluid_phase = valid_patient_values.get("fluid_phase")
+    if fluid_phase == "unknown":
+        alerts.append(
+            "Fluid administration phase is unknown; verify the phase timing "
+            "before interpreting any estimate."
+        )
+
+    if not isinstance(calculation_results, dict):
+        alerts.append(
+            "Calculation results are unavailable or invalid; review the "
+            "patient data and estimate."
+        )
+        return alerts
+
+    current_phase = calculation_results.get("current_phase")
+    if current_phase is None:
+        hours_since_burn = valid_patient_values.get("hours_since_burn")
+        if hours_since_burn is not None:
+            if hours_since_burn < 8:
+                current_phase = "first_8h"
+            else:
+                current_phase = "next_16h"
+
+    if (
+        fluid_phase is not None
+        and fluid_phase != "unknown"
+        and fluid_phase != current_phase
+        and current_phase in ("first_8h", "next_16h")
+    ):
+        alerts.append(
+            "Recorded fluid phase does not match the current phase based on "
+            "hours since burn injury."
+        )
+
+    target_ml = calculation_results.get("current_phase_target_ml")
+    if target_ml is None:
+        target_ml = calculation_results.get("first_8h_target_ml")
+        if current_phase == "next_16h":
+            target_ml = calculation_results.get("next_16h_target_ml")
+    if target_ml is None:
+        weight_kg = valid_patient_values.get("patient_weight_kg")
+        tbsa_percent = valid_patient_values.get("tbsa_percent")
+        if weight_kg is not None and tbsa_percent is not None:
+            # Reconstruct only the classroom target if other invalid fields
+            # caused the estimator to stop before populating its result.
+            target_ml = PROTOCOL_FACTOR * weight_kg * tbsa_percent / 2
+
+    try:
+        target_ml = validate_finite_number(
+            target_ml, "Illustrative phase target"
+        )
+        recorded_fluid_ml = valid_patient_values.get("fluid_given_ml")
+        if recorded_fluid_ml is not None and recorded_fluid_ml > target_ml:
+            alerts.append(
+                "Recorded fluid volume exceeds the illustrative phase "
+                "target; review the recorded value."
+            )
+    except (TypeError, ValueError, OverflowError):
+        # Invalid patient information has already received its own warning.
+        pass
+
+    remaining_hours = calculation_results.get(
+        "remaining_hours_in_current_phase"
+    )
+    if remaining_hours is None:
+        hours_since_burn = valid_patient_values.get("hours_since_burn")
+        if hours_since_burn is not None:
+            if hours_since_burn < 8:
+                remaining_hours = 8 - hours_since_burn
+            else:
+                remaining_hours = 24 - hours_since_burn
+
+    if remaining_hours is not None:
+        try:
+            remaining_hours = validate_finite_number(
+                remaining_hours, "Remaining phase time"
+            )
+            if is_at_or_below_classroom_time_threshold(remaining_hours):
+                alerts.append(
+                    "Insufficient remaining time for a meaningful classroom "
+                    "hourly estimate; the estimate is withheld by an "
+                    "educational numerical safeguard."
+                )
+        except (TypeError, ValueError, OverflowError):
+            alerts.append(
+                "Remaining phase time is unavailable; review the estimate "
+                "inputs."
+            )
+    elif patient_data_is_valid:
+        alerts.append(
+            "Remaining phase time is unavailable; review the estimate inputs."
+        )
+
+    return alerts
 
 
 if __name__ == "__main__":
