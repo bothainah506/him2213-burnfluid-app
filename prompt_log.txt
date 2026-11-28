@@ -1,0 +1,118 @@
+BURNFLUID — AI PROMPT LOG
+========================================
+
+Course: HIM 2213 — Intermediate Programming
+Project: BurnFluid — Burn Fluid Resuscitation Support Tool
+Team Member: Bothainah Mohamed
+GitHub Username: bothainah506
+Assigned Module: burn_calculations.py
+AI Tools: ChatGPT and GitHub Copilot
+Development Environment: GitHub Codespaces
+Date: 28 November 2026
+
+Documentation Note:
+The following entries summarize the main AI prompts and their documented development outcomes.
+
+========================================
+PROMPT 01 — PATIENT INPUT AND VALIDATION
+========================================
+
+Prompt Summary:
+Develop a text-based Python console application. Do not create a website or use HTML, JavaScript, or TypeScript. Modify only burn_calculations.py. Implement fictional adult patient data collection with appropriate input validation, clear measurement units, error handling, and an educational disclaimer. Do not implement the calculation logic at this stage.
+
+Outcome:
+The patient input collection and validation functionality was implemented. Invalid entries were rejected, and users were allowed to enter corrected values.
+
+Verification:
+Test 02 demonstrated successful rejection and correction of invalid age, weight, TBSA percentage, and injury time inputs.
+
+GitHub Commit: 48c5c68
+Commit Message: Implement and validate fictional patient input
+
+========================================
+PROMPT 02 — BURN FLUID CALCULATION LOGIC
+========================================
+
+Prompt Summary:
+Implement educational burn fluid estimation logic using the fictional patient information. Calculate the illustrative first 24-hour fluid requirement, identify the current fluid administration phase, determine the remaining phase volume and time, and calculate an educational hourly estimate when appropriate.
+
+Outcome:
+The educational calculation functionality was implemented with conditional logic and structured calculation results.
+
+Verification:
+Test 01 and Test 07 demonstrated successful first-phase and second-phase calculations.
+
+GitHub Commit: 8f6e6a3
+Commit Message: Implement educational burn fluid calculation logic
+
+========================================
+PROMPT 03 — EDUCATIONAL SAFETY ALERTS AND EDGE CASE HANDLING
+========================================
+
+Prompt Summary:
+Implement educational safety alerts and handle inconsistent or incomplete patient information, including unknown fluid administration phases, phase mismatches, excess recorded fluid volumes, reported inhalation injuries, and insufficient remaining time.
+
+Outcome:
+Educational alerts and review conditions were implemented. The module withholds the hourly estimate when relevant review conditions are detected.
+
+Verification:
+Tests 03, 04, 05, and 06 demonstrated the expected review conditions and educational alerts.
+
+GitHub Commit: da4a396
+
+========================================
+PROMPT 3.1 — FLOATING-POINT BOUNDARY FIX
+========================================
+
+Prompt Summary:
+Correct the floating-point precision issue affecting the educational remaining-time safeguard. Use math.isclose() with an appropriate absolute tolerance to prevent numerical representation differences from bypassing the safeguard.
+
+Problem Identified:
+Subtracting 23.9 from 24 hours may produce a floating-point value slightly greater than 0.1.
+
+Action Taken:
+Implemented the is_at_or_below_classroom_time_threshold() helper function using a direct comparison and math.isclose(), with a relative tolerance of 0.0 and an absolute tolerance of 1e-12.
+
+Outcome:
+The calculation logic checks the numerical safeguard before calculating the hourly estimate.
+
+Verification:
+Test 08 confirmed that 23.99 hours triggered the safeguard and withheld the hourly estimate. Exact boundary verification at 23.9 hours remains a final testing check.
+
+GitHub Commit: da4a396
+Commit Message: Implement educational safety alerts and fix floating-point boundary handling
+
+========================================
+PROMPT 04 — FINAL RESULTS DISPLAY
+========================================
+
+Prompt Summary:
+Implement display_estimation_results(patient_data, calculation_results, safety_alerts) to present fictional patient information, educational calculation results, review conditions, and safety alerts in a clear and organized console format.
+
+Outcome:
+The formatted results display was implemented with structured sections, clear measurement units, educational warnings, and appropriate handling of unavailable calculation values.
+
+Verification:
+The eight documented test scenarios demonstrated the display of calculation results, review conditions, and educational alerts.
+
+GitHub Commit: 60c7872
+Commit Message: Implement formatted educational results display
+
+========================================
+INDIVIDUAL DEVELOPMENT SUMMARY
+========================================
+
+Module: burn_calculations.py
+Main prompt entries: 4
+Additional debugging prompt entry: 1
+Documented test scenarios: 8
+Passed scenarios: 8
+Failed scenarios: 0
+
+The documented results apply only to the tested calculation module. Integrated application testing is required after combining the team members' modules.
+
+BurnFluid is an educational simulation tool. It is not intended for clinical use and does not replace professional clinical judgment or approved hospital treatment protocols.
+
+========================================
+END OF INDIVIDUAL PROMPT LOG
+========================================
